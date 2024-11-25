@@ -157,7 +157,7 @@ abstract contract TokenizedStrategy is ERC20, ReentrancyGuard {
     /**
      * @notice Emergency withdrawal of all funds
      */
-    function emergencyWithdraw() external onlyVault nonReentrant {
+    function emergencyWithdraw() external virtual onlyVault nonReentrant {
         require(isShutdown, "Not shutdown");
         
         // Get all funds from yield source

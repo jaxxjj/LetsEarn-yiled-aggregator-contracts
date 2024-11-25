@@ -36,7 +36,7 @@ contract MockStrategy is TokenizedStrategy {
         currentAssets -= amount;
     }
     
-    function _estimateCurrentAssets() internal override returns (uint256) {
+    function _estimateCurrentAssets() internal view override returns (uint256) {
         return currentAssets;
     }
 }
