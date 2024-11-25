@@ -36,6 +36,9 @@ Auto-allocation of funds to strategies
 Price per share calculation
 Manager role for strategy management
 Emergency functions (pause, shutdown)
+
+
+process: deposit -> convert to shares -> allocate -> rebalance -> withdraw
 3. TokenizedStrategy
 Base contract for implementing specific yield strategies:
 Abstract contract that must be inherited by specific strategy implementations

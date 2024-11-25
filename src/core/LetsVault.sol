@@ -21,7 +21,7 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
     uint256 public constant SECONDS_PER_YEAR = 365.25 days;
     
     // Immutables
-    address public immutable factory;
+    address public factory;
     IERC20 public underlying;
 
     // Access control
@@ -66,6 +66,13 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
         factory = msg.sender;
     }
 
+    function name() public view override returns (string memory) {
+        return _name;
+    }
+
+    function symbol() public view override returns (string memory) {
+        return _symbol;
+    }
 
     /**
      * @notice Initialize the vault
@@ -79,11 +86,13 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
         string memory name_,
         string memory symbol_,
         address manager_
-    ) external override onlyFactory {
+    ) external override {
         require(address(underlying) == address(0), "Already initialized");
         require(asset_ != address(0), "Invalid asset");
         require(manager_ != address(0), "Invalid manager");
-
+        
+        factory = msg.sender;
+        
         underlying = IERC20(asset_);
         manager = manager_;
         
@@ -329,8 +338,8 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
             return assets;
         }
         
-        uint256 totalAssets = _totalIdle + _totalDebt;
-        return assets.mulDiv(supply, totalAssets, rounding);
+        uint256 totalAUM = _totalIdle + _totalDebt;
+        return assets.mulDiv(supply, totalAUM, rounding);
     }
 
     function _convertToAssets(uint256 shares, Math.Rounding rounding)
@@ -344,8 +353,8 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
             return shares;
         }
         
-        uint256 totalAssets = _totalIdle + _totalDebt;
-        return shares.mulDiv(totalAssets, supply, rounding);
+        uint256 totalAUM = _totalIdle + _totalDebt;
+        return shares.mulDiv(totalAUM, supply, rounding);
     }
 
     // Implement any missing interface functions
