@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-interface IVaultFactory {
+interface ILetsVaultFactory {
     /// Events
     event NewVault(address indexed vault, address indexed asset);
     event UpdateProtocolFee(uint16 oldFee, uint16 newFee);

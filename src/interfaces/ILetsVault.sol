@@ -5,7 +5,7 @@ pragma solidity ^0.8.20;
  * @title IVault
  * @notice Core vault interface for asset management
  */
-interface IVault {
+interface ILetsVault {
     /// Events
     event Deposit(address indexed sender, address indexed owner, uint256 assets, uint256 shares);
     event Withdraw(address indexed sender, address indexed receiver, address indexed owner, uint256 assets, uint256 shares);
@@ -13,13 +13,13 @@ interface IVault {
     event StrategyRemoved(address indexed strategy);
     event StrategyReported(address indexed strategy, uint256 gain, uint256 loss, uint256 totalDebt, uint256 protocolFees);
     event DebtUpdated(address indexed strategy, uint256 currentDebt, uint256 newDebt);
-
+    event UpdateManager(address indexed newManager);
     /// Initialization
     function initialize(
-        address asset,
-        string memory name,
-        string memory symbol,
-        address manager
+        address asset_,
+        string memory name_,
+        string memory symbol_,
+        address manager_
     ) external;
 
     /// Core ERC4626 Functions

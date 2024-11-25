@@ -76,7 +76,7 @@ abstract contract TokenizedStrategy is ERC20, ReentrancyGuard {
         require(amount > 0, "Zero amount");
 
         // Calculate shares to mint
-        shares = _convertToShares(amount, Math.Rounding.Down);
+        shares = _convertToShares(amount, Math.Rounding.Floor);
         require(shares > 0, "Zero shares");
 
         // Transfer assets from vault
@@ -104,7 +104,7 @@ abstract contract TokenizedStrategy is ERC20, ReentrancyGuard {
         require(receiver != address(0), "Invalid receiver");
 
         // Calculate shares to burn
-        uint256 shares = _convertToShares(amount, Math.Rounding.Up);
+        uint256 shares = _convertToShares(amount, Math.Rounding.Floor);
         require(shares <= balanceOf(msg.sender), "Insufficient shares");
 
         // Free funds from yield source
@@ -209,9 +209,7 @@ abstract contract TokenizedStrategy is ERC20, ReentrancyGuard {
     }
 
     // View functions
-    function totalAssets() public view returns (uint256) {
-        return totalAssets;
-    }
+
 
     function maxDeposit(address) external view returns (uint256) {
         if (isShutdown) return 0;
@@ -219,7 +217,7 @@ abstract contract TokenizedStrategy is ERC20, ReentrancyGuard {
     }
 
     function maxWithdraw(address owner) external view returns (uint256) {
-        return _convertToAssets(balanceOf(owner), Math.Rounding.Down);
+        return _convertToAssets(balanceOf(owner), Math.Rounding.Floor);
     }
 
     // Virtual functions to be implemented by specific strategies

@@ -1,4 +1,3 @@
-
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
@@ -7,31 +6,15 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
+import {ILetsVault} from "../interfaces/ILetsVault.sol";
 
 /**
  * @title Simplified Vault
  * @notice A simplified ERC4626-compatible vault
  */
-contract SimplifiedVault is ERC20, ReentrancyGuard, Pausable {
+contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
     using Math for uint256;
-
-    // Events
-    event StrategyAdded(address indexed strategy);
-    event StrategyRemoved(address indexed strategy);
-    event StrategyReported(
-        address indexed strategy,
-        uint256 gain,
-        uint256 loss,
-        uint256 totalDebt,
-        uint256 protocolFees
-    );
-    event UpdateManager(address indexed newManager);
-    event DebtUpdated(
-        address indexed strategy,
-        uint256 currentDebt,
-        uint256 newDebt
-    );
 
     // Constants
     uint256 public constant MAX_BPS = 10_000; // 100%
@@ -39,7 +22,7 @@ contract SimplifiedVault is ERC20, ReentrancyGuard, Pausable {
     
     // Immutables
     address public immutable factory;
-    IERC20 public immutable asset;
+    IERC20 public underlying;
 
     // Access control
     address public manager;
@@ -52,12 +35,12 @@ contract SimplifiedVault is ERC20, ReentrancyGuard, Pausable {
         uint256 maxDebt;       // Maximum debt allowed
     }
     
-    mapping(address => StrategyParams) public strategies;
-    address[] public activeStrategies;
+    mapping(address => StrategyParams) private _strategies;
+    address[] private _activeStrategies;
 
     // Vault accounting
-    uint256 public totalDebt;      // Total assets allocated to strategies
-    uint256 public totalIdle;      // Total assets in vault
+    uint256 private _totalDebt;      // Total assets allocated to strategies
+    uint256 private _totalIdle;      // Total assets in vault
     uint256 public pricePerShare;  // Current price per share
     
     // Profit management
@@ -65,6 +48,10 @@ contract SimplifiedVault is ERC20, ReentrancyGuard, Pausable {
     uint256 public profitUnlockingRate;
     uint256 public fullProfitUnlockDate;
     
+    // Storage for name/symbol
+    string private _name;
+    string private _symbol;
+
     modifier onlyManager() {
         require(msg.sender == manager, "Not manager");
         _;
@@ -79,28 +66,29 @@ contract SimplifiedVault is ERC20, ReentrancyGuard, Pausable {
         factory = msg.sender;
     }
 
+
     /**
      * @notice Initialize the vault
-     * @param _asset Underlying asset address
-     * @param _name Vault name
-     * @param _symbol Vault symbol
-     * @param _manager Manager address
+     * @param asset_ Underlying asset address
+     * @param name_ Vault name
+     * @param symbol_ Vault symbol
+     * @param manager_ Manager address
      */
     function initialize(
-        address _asset,
-        string memory _name,
-        string memory _symbol,
-        address _manager
-    ) external onlyFactory {
-        require(address(asset) == address(0), "Already initialized");
-        require(_asset != address(0), "Invalid asset");
-        require(_manager != address(0), "Invalid manager");
+        address asset_,
+        string memory name_,
+        string memory symbol_,
+        address manager_
+    ) external override onlyFactory {
+        require(address(underlying) == address(0), "Already initialized");
+        require(asset_ != address(0), "Invalid asset");
+        require(manager_ != address(0), "Invalid manager");
 
-        asset = IERC20(_asset);
-        manager = _manager;
+        underlying = IERC20(asset_);
+        manager = manager_;
         
-        _mint(address(this), 0); // Initialize ERC20
-        _updateName(_name, _symbol);
+        _name = name_;
+        _symbol = symbol_;
     }
 
     /**
@@ -118,20 +106,16 @@ contract SimplifiedVault is ERC20, ReentrancyGuard, Pausable {
         require(assets > 0, "Zero assets");
         require(receiver != address(0), "Invalid receiver");
 
-        // Calculate shares to mint
-        shares = _convertToShares(assets, Math.Rounding.Down);
+        shares = _convertToShares(assets, Math.Rounding.Floor);
         require(shares > 0, "Zero shares");
 
-        // Transfer assets from user
-        asset.safeTransferFrom(msg.sender, address(this), assets);
+        underlying.safeTransferFrom(msg.sender, address(this), assets);
         
-        // Update accounting
-        totalIdle += assets;
+        _totalIdle += assets;
         _mint(receiver, shares);
 
         emit Deposit(msg.sender, receiver, assets, shares);
 
-        // Auto allocate if strategies exist
         _autoAllocate();
     }
 
@@ -150,25 +134,20 @@ contract SimplifiedVault is ERC20, ReentrancyGuard, Pausable {
         require(assets > 0, "Zero assets");
         require(receiver != address(0), "Invalid receiver");
         
-        // Calculate shares to burn
-        shares = _convertToShares(assets, Math.Rounding.Up);
+        shares = _convertToShares(assets, Math.Rounding.Ceil);
         
-        // Check allowance if not owner
         if (msg.sender != owner) {
             _spendAllowance(owner, msg.sender, shares);
         }
 
-        // Check if we need to withdraw from strategies
-        if (assets > totalIdle) {
-            _withdrawFromStrategies(assets - totalIdle);
+        if (assets > _totalIdle) {
+            _withdrawFromStrategies(assets - _totalIdle);
         }
 
-        // Update accounting
-        totalIdle -= assets;
+        _totalIdle -= assets;
         _burn(owner, shares);
 
-        // Transfer assets
-        asset.safeTransfer(receiver, assets);
+        underlying.safeTransfer(receiver, assets);
 
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
     }
@@ -183,16 +162,16 @@ contract SimplifiedVault is ERC20, ReentrancyGuard, Pausable {
         onlyManager 
     {
         require(strategy != address(0), "Invalid strategy");
-        require(strategies[strategy].activation == 0, "Strategy exists");
+        require(_strategies[strategy].activation == 0, "Strategy exists");
         
-        strategies[strategy] = StrategyParams({
+        _strategies[strategy] = StrategyParams({
             activation: block.timestamp,
             lastReport: block.timestamp,
             currentDebt: 0,
             maxDebt: maxDebt
         });
 
-        activeStrategies.push(strategy);
+        _activeStrategies.push(strategy);
         emit StrategyAdded(strategy);
     }
 
@@ -201,18 +180,17 @@ contract SimplifiedVault is ERC20, ReentrancyGuard, Pausable {
      * @param strategy Strategy address
      */
     function removeStrategy(address strategy) external onlyManager {
-        require(strategies[strategy].currentDebt == 0, "Strategy has debt");
+        require(_strategies[strategy].currentDebt == 0, "Strategy has debt");
         
-        // Remove from active strategies
-        for (uint i = 0; i < activeStrategies.length; i++) {
-            if (activeStrategies[i] == strategy) {
-                activeStrategies[i] = activeStrategies[activeStrategies.length - 1];
-                activeStrategies.pop();
+        for (uint i = 0; i < _activeStrategies.length; i++) {
+            if (_activeStrategies[i] == strategy) {
+                _activeStrategies[i] = _activeStrategies[_activeStrategies.length - 1];
+                _activeStrategies.pop();
                 break;
             }
         }
 
-        delete strategies[strategy];
+        delete _strategies[strategy];
         emit StrategyRemoved(strategy);
     }
 
@@ -225,37 +203,35 @@ contract SimplifiedVault is ERC20, ReentrancyGuard, Pausable {
         nonReentrant 
         returns (uint256 gain, uint256 loss) 
     {
-        require(strategies[strategy].activation > 0, "Invalid strategy");
+        require(_strategies[strategy].activation > 0, "Invalid strategy");
         
-        // Get strategy's total assets
-        uint256 totalAssets = IStrategy(strategy).totalAssets();
-        uint256 currentDebt = strategies[strategy].currentDebt;
+        uint256 strategyAssets = IStrategy(strategy).totalAssets();
+        uint256 currentDebt = _strategies[strategy].currentDebt;
+        uint256 protocolFee = 0;
         
-        // Calculate gain/loss
-        if (totalAssets > currentDebt) {
-            gain = totalAssets - currentDebt;
-            // Handle protocol fees
+        if (strategyAssets > currentDebt) {
+            gain = strategyAssets - currentDebt;
             (uint16 feeBps, address feeRecipient) = IFactory(factory).getProtocolFeeConfig(address(this));
-            uint256 protocolFee = (gain * feeBps) / MAX_BPS;
+            protocolFee = (gain * feeBps) / MAX_BPS;
             if (protocolFee > 0) {
                 IStrategy(strategy).withdraw(protocolFee, feeRecipient);
                 gain -= protocolFee;
             }
-            strategies[strategy].currentDebt = currentDebt + gain;
-            totalDebt += gain;
+            _strategies[strategy].currentDebt = currentDebt + gain;
+            _totalDebt += gain;
         } else {
-            loss = currentDebt - totalAssets;
-            strategies[strategy].currentDebt = totalAssets;
-            totalDebt -= loss;
+            loss = currentDebt - strategyAssets;
+            _strategies[strategy].currentDebt = strategyAssets;
+            _totalDebt -= loss;
         }
 
-        strategies[strategy].lastReport = block.timestamp;
+        _strategies[strategy].lastReport = block.timestamp;
 
         emit StrategyReported(
             strategy,
             gain,
             loss,
-            strategies[strategy].currentDebt,
+            _strategies[strategy].currentDebt,
             protocolFee
         );
 
@@ -272,61 +248,62 @@ contract SimplifiedVault is ERC20, ReentrancyGuard, Pausable {
         onlyManager 
         nonReentrant 
     {
-        StrategyParams storage params = strategies[strategy];
+        _updateDebt(strategy, targetDebt);
+    }
+
+    // Internal functions
+
+    function _updateDebt(address strategy, uint256 targetDebt) internal {
+        StrategyParams storage params = _strategies[strategy];
         require(params.activation > 0, "Invalid strategy");
         require(targetDebt <= params.maxDebt, "Exceeds max debt");
 
         uint256 currentDebt = params.currentDebt;
         
         if (targetDebt > currentDebt) {
-            // Increase allocation
             uint256 increase = targetDebt - currentDebt;
-            require(increase <= totalIdle, "Insufficient idle");
+            require(increase <= _totalIdle, "Insufficient idle");
             
-            asset.safeApprove(strategy, increase);
+            underlying.safeIncreaseAllowance(strategy, increase);
             IStrategy(strategy).deposit(increase);
             
-            totalIdle -= increase;
-            totalDebt += increase;
+            _totalIdle -= increase;
+            _totalDebt += increase;
             params.currentDebt += increase;
         } else {
-            // Decrease allocation
             uint256 decrease = currentDebt - targetDebt;
             IStrategy(strategy).withdraw(decrease, address(this));
             
-            totalIdle += decrease;
-            totalDebt -= decrease;
+            _totalIdle += decrease;
+            _totalDebt -= decrease;
             params.currentDebt -= decrease;
         }
 
         emit DebtUpdated(strategy, currentDebt, targetDebt);
     }
 
-    // Internal functions
-
     function _autoAllocate() internal {
-        if (activeStrategies.length == 0 || totalIdle == 0) return;
+        if (_activeStrategies.length == 0 || _totalIdle == 0) return;
 
-        // Simple allocation to first strategy
-        address strategy = activeStrategies[0];
-        StrategyParams storage params = strategies[strategy];
+        address strategy = _activeStrategies[0];
+        StrategyParams storage params = _strategies[strategy];
         
         uint256 available = Math.min(
-            totalIdle,
+            _totalIdle,
             params.maxDebt - params.currentDebt
         );
 
         if (available > 0) {
-            updateDebt(strategy, params.currentDebt + available);
+            _updateDebt(strategy, params.currentDebt + available);
         }
     }
 
     function _withdrawFromStrategies(uint256 amount) internal {
         uint256 remaining = amount;
         
-        for (uint i = 0; i < activeStrategies.length && remaining > 0; i++) {
-            address strategy = activeStrategies[i];
-            StrategyParams storage params = strategies[strategy];
+        for (uint i = 0; i < _activeStrategies.length && remaining > 0; i++) {
+            address strategy = _activeStrategies[i];
+            StrategyParams storage params = _strategies[strategy];
             
             uint256 toWithdraw = Math.min(remaining, params.currentDebt);
             if (toWithdraw == 0) continue;
@@ -334,7 +311,7 @@ contract SimplifiedVault is ERC20, ReentrancyGuard, Pausable {
             IStrategy(strategy).withdraw(toWithdraw, address(this));
             
             params.currentDebt -= toWithdraw;
-            totalDebt -= toWithdraw;
+            _totalDebt -= toWithdraw;
             remaining -= toWithdraw;
         }
 
@@ -352,7 +329,7 @@ contract SimplifiedVault is ERC20, ReentrancyGuard, Pausable {
             return assets;
         }
         
-        uint256 totalAssets = totalIdle + totalDebt;
+        uint256 totalAssets = _totalIdle + _totalDebt;
         return assets.mulDiv(supply, totalAssets, rounding);
     }
 
@@ -367,37 +344,13 @@ contract SimplifiedVault is ERC20, ReentrancyGuard, Pausable {
             return shares;
         }
         
-        uint256 totalAssets = totalIdle + totalDebt;
+        uint256 totalAssets = _totalIdle + _totalDebt;
         return shares.mulDiv(totalAssets, supply, rounding);
     }
 
-    function _updateName(string memory _name, string memory _symbol) internal {
-        require(bytes(_name).length > 0, "Empty name");
-        require(bytes(_symbol).length > 0, "Empty symbol");
-        
-        // Update ERC20 name and symbol
-        // Note: This requires custom ERC20 implementation that allows name updates
-        name = _name;
-        symbol = _symbol;
-    }
-
-    // View functions
-
-    function totalAssets() public view returns (uint256) {
-        return totalIdle + totalDebt;
-    }
-
-    function getActiveStrategies() external view returns (address[] memory) {
-        return activeStrategies;
-    }
-
-    function maxDeposit(address) external view returns (uint256) {
-        if (paused()) return 0;
-        return type(uint256).max;
-    }
-
-    function maxWithdraw(address owner) external view returns (uint256) {
-        return _convertToAssets(balanceOf(owner), Math.Rounding.Down);
+    // Implement any missing interface functions
+    function asset() public view override returns (address) {
+        return address(underlying);
     }
 
     // Emergency functions
@@ -414,6 +367,90 @@ contract SimplifiedVault is ERC20, ReentrancyGuard, Pausable {
         require(newManager != address(0), "Invalid manager");
         manager = newManager;
         emit UpdateManager(newManager);
+    }
+
+    // Make internal conversion functions public to match interface
+    function convertToShares(uint256 assets) public view override returns (uint256) {
+        return _convertToShares(assets, Math.Rounding.Floor);
+    }
+
+    function convertToAssets(uint256 shares) public view override returns (uint256) {
+        return _convertToAssets(shares, Math.Rounding.Floor);
+    }
+
+    // Add missing redeem function
+    function redeem(
+        uint256 shares,
+        address receiver,
+        address owner
+    ) external nonReentrant returns (uint256 assets) {
+        require(shares > 0, "Zero shares");
+        require(receiver != address(0), "Invalid receiver");
+        
+        assets = _convertToAssets(shares, Math.Rounding.Floor);
+        
+        if (msg.sender != owner) {
+            _spendAllowance(owner, msg.sender, shares);
+        }
+
+        if (assets > _totalIdle) {
+            _withdrawFromStrategies(assets - _totalIdle);
+        }
+
+        _totalIdle -= assets;
+        _burn(owner, shares);
+
+        underlying.safeTransfer(receiver, assets);
+
+        emit Withdraw(msg.sender, receiver, owner, assets, shares);
+    }
+
+    // Make view functions public to match interface
+    function totalDebt() public view override returns (uint256) {
+        return _totalDebt;
+    }
+
+    function totalIdle() public view override returns (uint256) {
+        return _totalIdle;
+    }
+
+    // Add missing strategies view function
+    function strategies(address strategy) 
+        external 
+        view 
+        override 
+        returns (
+            uint256 activation,
+            uint256 lastReport,
+            uint256 currentDebt,
+            uint256 maxDebt
+        ) 
+    {
+        StrategyParams storage params = _strategies[strategy];
+        return (
+            params.activation,
+            params.lastReport,
+            params.currentDebt,
+            params.maxDebt
+        );
+    }
+
+    // Make sure all other interface functions are properly implemented
+    function getActiveStrategies() external view override returns (address[] memory) {
+        return _activeStrategies;
+    }
+
+    function totalAssets() public view override returns (uint256) {
+        return _totalIdle + _totalDebt;
+    }
+
+    function maxDeposit(address) external view override returns (uint256) {
+        if (paused()) return 0;
+        return type(uint256).max;
+    }
+
+    function maxWithdraw(address owner) external view override returns (uint256) {
+        return _convertToAssets(balanceOf(owner), Math.Rounding.Floor);
     }
 }
 

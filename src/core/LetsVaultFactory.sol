@@ -5,19 +5,13 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/proxy/Clones.sol";
 import {ILetsVaultFactory} from "../interfaces/ILetsVaultFactory.sol";
-
+import {ILetsVault} from "../interfaces/ILetsVault.sol";
 /**
  * @title Simplified Vault Factory
  * @notice A factory contract for deploying new vaults with minimal functionality
  */
 contract LetsVaultFactory is Ownable, ReentrancyGuard, ILetsVaultFactory {
     using Clones for address;
-
-    // Events
-    event NewVault(address indexed vault, address indexed asset);
-    event UpdateProtocolFee(uint16 oldFee, uint16 newFee);
-    event UpdateFeeRecipient(address indexed oldRecipient, address indexed newRecipient);
-    event FactoryShutdown();
 
     // Constants
     string public constant API_VERSION = "1.0.0";
@@ -39,7 +33,7 @@ contract LetsVaultFactory is Ownable, ReentrancyGuard, ILetsVaultFactory {
         address _vaultImplementation,
         address _feeRecipient,
         uint16 _protocolFeeBps
-    ) {
+    ) Ownable(msg.sender) {
         require(_vaultImplementation != address(0), "Invalid implementation");
         require(_feeRecipient != address(0), "Invalid fee recipient");
         require(_protocolFeeBps <= MAX_FEE_BPS, "Fee too high");
