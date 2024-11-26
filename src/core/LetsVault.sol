@@ -7,7 +7,7 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
 import {ILetsVault} from "../interfaces/ILetsVault.sol";
-
+import {ITokenizedStrategy} from "../interfaces/ITokenizedStrategy.sol";
 /**
  * @title Simplified Vault
  * @notice A simplified ERC4626-compatible vault
@@ -214,36 +214,38 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
     {
         require(_strategies[strategy].activation > 0, "Invalid strategy");
         
-        uint256 strategyAssets = IStrategy(strategy).totalAssets();
-        uint256 currentDebt = _strategies[strategy].currentDebt;
-        uint256 protocolFee = 0;
+        // Get report from strategy
+        (gain, loss) = ITokenizedStrategy(strategy).report();
         
-        if (strategyAssets > currentDebt) {
-            gain = strategyAssets - currentDebt;
+        // Handle protocol fees on gain
+        if (gain > 0) {
             (uint16 feeBps, address feeRecipient) = IFactory(factory).getProtocolFeeConfig(address(this));
-            protocolFee = (gain * feeBps) / MAX_BPS;
+            uint256 protocolFee = (gain * feeBps) / MAX_BPS;
+            
             if (protocolFee > 0) {
-                IStrategy(strategy).withdraw(protocolFee, feeRecipient);
+                ITokenizedStrategy(strategy).withdraw(protocolFee, feeRecipient);
                 gain -= protocolFee;
             }
-            _strategies[strategy].currentDebt = currentDebt + gain;
+            
+            _strategies[strategy].currentDebt += gain;
             _totalDebt += gain;
-        } else {
-            loss = currentDebt - strategyAssets;
-            _strategies[strategy].currentDebt = strategyAssets;
+        }
+        
+        if (loss > 0) {
+            _strategies[strategy].currentDebt -= loss;
             _totalDebt -= loss;
         }
-
+        
         _strategies[strategy].lastReport = block.timestamp;
-
+        
         emit StrategyReported(
             strategy,
             gain,
             loss,
             _strategies[strategy].currentDebt,
-            protocolFee
+            0
         );
-
+        
         return (gain, loss);
     }
 
@@ -274,14 +276,14 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
             require(increase <= _totalIdle, "Insufficient idle");
             
             underlying.safeIncreaseAllowance(strategy, increase);
-            IStrategy(strategy).deposit(increase);
+            ITokenizedStrategy(strategy).deposit(increase);
             
             _totalIdle -= increase;
             _totalDebt += increase;
             params.currentDebt += increase;
         } else {
             uint256 decrease = currentDebt - targetDebt;
-            IStrategy(strategy).withdraw(decrease, address(this));
+            ITokenizedStrategy(strategy).withdraw(decrease, address(this));
             
             _totalIdle += decrease;
             _totalDebt -= decrease;
@@ -317,7 +319,7 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
             uint256 toWithdraw = Math.min(remaining, params.currentDebt);
             if (toWithdraw == 0) continue;
 
-            IStrategy(strategy).withdraw(toWithdraw, address(this));
+            ITokenizedStrategy(strategy).withdraw(toWithdraw, address(this));
             
             params.currentDebt -= toWithdraw;
             _totalDebt -= toWithdraw;
@@ -463,11 +465,6 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
     }
 }
 
-interface IStrategy {
-    function totalAssets() external view returns (uint256);
-    function deposit(uint256 assets) external returns (uint256);
-    function withdraw(uint256 assets, address receiver) external returns (uint256);
-}
 
 interface IFactory {
     function getProtocolFeeConfig(address vault) external view returns (uint16 feeBps, address recipient);
