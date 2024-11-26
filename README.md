@@ -8,7 +8,7 @@ yield aggregator for lending, staking, and liquidity provider strategies
 
 1. lending strategy
     current support: 
-    - aave
+    - aave: usdt test block 16773871
 2. staking strategy
     current support: 
     - lido
