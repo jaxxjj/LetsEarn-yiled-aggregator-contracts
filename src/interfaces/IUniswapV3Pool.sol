@@ -6,7 +6,7 @@ interface IUniswapV3Pool {
     function token0() external view returns (address);
     function token1() external view returns (address);
     function fee() external view returns (uint24);
-    
+
     function slot0()
         external
         view
@@ -31,19 +31,13 @@ interface IUniswapV3Pool {
             uint128 tokensOwed1
         );
 
-    function mint(
-        address recipient,
-        int24 tickLower,
-        int24 tickUpper,
-        uint128 amount,
-        bytes calldata data
-    ) external returns (uint256 amount0, uint256 amount1);
+    function mint(address recipient, int24 tickLower, int24 tickUpper, uint128 amount, bytes calldata data)
+        external
+        returns (uint256 amount0, uint256 amount1);
 
-    function burn(
-        int24 tickLower,
-        int24 tickUpper,
-        uint128 amount
-    ) external returns (uint256 amount0, uint256 amount1);
+    function burn(int24 tickLower, int24 tickUpper, uint128 amount)
+        external
+        returns (uint256 amount0, uint256 amount1);
 
     function collect(
         address recipient,

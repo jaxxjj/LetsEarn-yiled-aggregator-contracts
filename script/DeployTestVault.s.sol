@@ -12,7 +12,7 @@ contract DeployTestVault is Script {
         address factoryAddress = vm.envAddress("FACTORY_ADDRESS");
         address assetAddress = vm.envAddress("ASSET_ADDRESS");
         address vaultManager = vm.envAddress("VAULT_MANAGER");
-        
+
         // Configuration for vault
         string memory name = "Test Vault";
         string memory symbol = "tVAULT";
@@ -21,12 +21,7 @@ contract DeployTestVault is Script {
 
         // Deploy vault through factory
         LetsVaultFactory factory = LetsVaultFactory(factoryAddress);
-        address vault = factory.deployVault(
-            assetAddress,
-            name,
-            symbol,
-            vaultManager
-        );
+        address vault = factory.deployVault(assetAddress, name, symbol, vaultManager);
 
         vm.stopBroadcast();
 
@@ -39,4 +34,4 @@ contract DeployTestVault is Script {
         console.log("Name:", name);
         console.log("Symbol:", symbol);
     }
-} 
+}

@@ -12,6 +12,7 @@ import {ITokenizedStrategy} from "../interfaces/ITokenizedStrategy.sol";
  * @title Simplified Vault
  * @notice A simplified ERC4626-compatible vault
  */
+
 contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
     using SafeERC20 for IERC20;
     using Math for uint256;
@@ -20,35 +21,35 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
     uint256 public constant MAX_BPS = 10_000; // 100%
     uint256 public constant SECONDS_PER_YEAR = 365.25 days;
     uint256 public constant REPORT_INTERVAL = 29 days;
-    
+
     // Immutables
     address public factory;
     IERC20 public underlying;
 
     // Access control
     address public manager;
-    
+
     // Strategy management
     struct StrategyParams {
-        uint256 activation;    // When strategy was added
-        uint256 lastReport;    // Last report timestamp
-        uint256 currentDebt;   // Current debt (assets allocated)
-        uint256 maxDebt;       // Maximum debt allowed
+        uint256 activation; // When strategy was added
+        uint256 lastReport; // Last report timestamp
+        uint256 currentDebt; // Current debt (assets allocated)
+        uint256 maxDebt; // Maximum debt allowed
     }
-    
+
     mapping(address => StrategyParams) private _strategies;
     address[] private _activeStrategies;
 
     // Vault accounting
-    uint256 private _totalDebt;      // Total assets allocated to strategies
-    uint256 private _totalIdle;      // Total assets in vault
-    uint256 public pricePerShare;  // Current price per share
-    
+    uint256 private _totalDebt; // Total assets allocated to strategies
+    uint256 private _totalIdle; // Total assets in vault
+    uint256 public pricePerShare; // Current price per share
+
     // Profit management
     uint256 public lastProfitUpdate;
     uint256 public profitUnlockingRate;
     uint256 public fullProfitUnlockDate;
-    
+
     // Storage for name/symbol
     string private _name;
     string private _symbol;
@@ -82,21 +83,19 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
      * @param symbol_ Vault symbol
      * @param manager_ Manager address
      */
-    function initialize(
-        address asset_,
-        string memory name_,
-        string memory symbol_,
-        address manager_
-    ) external override {
+    function initialize(address asset_, string memory name_, string memory symbol_, address manager_)
+        external
+        override
+    {
         require(address(underlying) == address(0), "Already initialized");
         require(asset_ != address(0), "Invalid asset");
         require(manager_ != address(0), "Invalid manager");
-        
+
         factory = msg.sender;
-        
+
         underlying = IERC20(asset_);
         manager = manager_;
-        
+
         _name = name_;
         _symbol = symbol_;
     }
@@ -107,12 +106,7 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
      * @param receiver Address to receive the shares
      * @return shares Amount of shares minted
      */
-    function deposit(uint256 assets, address receiver) 
-        external
-        nonReentrant
-        whenNotPaused
-        returns (uint256 shares)
-    {
+    function deposit(uint256 assets, address receiver) external nonReentrant whenNotPaused returns (uint256 shares) {
         require(assets > 0, "Zero assets");
         require(receiver != address(0), "Invalid receiver");
 
@@ -120,7 +114,7 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
         require(shares > 0, "Zero shares");
 
         underlying.safeTransferFrom(msg.sender, address(this), assets);
-        
+
         _totalIdle += assets;
         _mint(receiver, shares);
 
@@ -136,16 +130,12 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
      * @param owner Owner of the shares
      * @return shares Amount of shares burned
      */
-    function withdraw(
-        uint256 assets,
-        address receiver,
-        address owner
-    ) external nonReentrant returns (uint256 shares) {
+    function withdraw(uint256 assets, address receiver, address owner) external nonReentrant returns (uint256 shares) {
         require(assets > 0, "Zero assets");
         require(receiver != address(0), "Invalid receiver");
-        
+
         shares = _convertToShares(assets, Math.Rounding.Ceil);
-        
+
         if (msg.sender != owner) {
             _spendAllowance(owner, msg.sender, shares);
         }
@@ -167,19 +157,12 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
      * @param strategy Strategy address
      * @param maxDebt Maximum debt allowed for strategy
      */
-    function addStrategy(address strategy, uint256 maxDebt) 
-        external 
-        onlyManager 
-    {
+    function addStrategy(address strategy, uint256 maxDebt) external onlyManager {
         require(strategy != address(0), "Invalid strategy");
         require(_strategies[strategy].activation == 0, "Strategy exists");
-        
-        _strategies[strategy] = StrategyParams({
-            activation: block.timestamp,
-            lastReport: block.timestamp,
-            currentDebt: 0,
-            maxDebt: maxDebt
-        });
+
+        _strategies[strategy] =
+            StrategyParams({activation: block.timestamp, lastReport: block.timestamp, currentDebt: 0, maxDebt: maxDebt});
 
         _activeStrategies.push(strategy);
         emit StrategyAdded(strategy);
@@ -191,8 +174,8 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
      */
     function removeStrategy(address strategy) external onlyManager {
         require(_strategies[strategy].currentDebt == 0, "Strategy has debt");
-        
-        for (uint i = 0; i < _activeStrategies.length; i++) {
+
+        for (uint256 i = 0; i < _activeStrategies.length; i++) {
             if (_activeStrategies[i] == strategy) {
                 _activeStrategies[i] = _activeStrategies[_activeStrategies.length - 1];
                 _activeStrategies.pop();
@@ -208,46 +191,36 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
      * @notice Process strategy report
      * @param strategy Strategy address
      */
-    function processReport(address strategy) 
-        external 
-        nonReentrant 
-        returns (uint256 gain, uint256 loss) 
-    {
+    function processReport(address strategy) external nonReentrant returns (uint256 gain, uint256 loss) {
         require(_strategies[strategy].activation > 0, "Invalid strategy");
         require(_strategies[strategy].lastReport + REPORT_INTERVAL < block.timestamp, "Report already processed");
-        
+
         // Get report from strategy
         (gain, loss) = ITokenizedStrategy(strategy).report();
-        
+
         // Handle protocol fees on gain
         if (gain > 0) {
             (uint16 feeBps, address feeRecipient) = IFactory(factory).getProtocolFeeConfig(address(this));
             uint256 protocolFee = (gain * feeBps) / MAX_BPS;
-            
+
             if (protocolFee > 0) {
                 ITokenizedStrategy(strategy).withdraw(protocolFee, feeRecipient);
                 gain -= protocolFee;
             }
-            
+
             _strategies[strategy].currentDebt += gain;
             _totalDebt += gain;
         }
-        
+
         if (loss > 0) {
             _strategies[strategy].currentDebt -= loss;
             _totalDebt -= loss;
         }
-        
+
         _strategies[strategy].lastReport = block.timestamp;
-        
-        emit StrategyReported(
-            strategy,
-            gain,
-            loss,
-            _strategies[strategy].currentDebt,
-            0
-        );
-        
+
+        emit StrategyReported(strategy, gain, loss, _strategies[strategy].currentDebt, 0);
+
         return (gain, loss);
     }
 
@@ -256,11 +229,7 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
      * @param strategy Strategy address
      * @param targetDebt Target debt for strategy
      */
-    function updateDebt(address strategy, uint256 targetDebt) 
-        external 
-        onlyManager 
-        nonReentrant 
-    {
+    function updateDebt(address strategy, uint256 targetDebt) external onlyManager nonReentrant {
         _updateDebt(strategy, targetDebt);
     }
 
@@ -272,21 +241,21 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
         require(targetDebt <= params.maxDebt, "Exceeds max debt");
 
         uint256 currentDebt = params.currentDebt;
-        
+
         if (targetDebt > currentDebt) {
             uint256 increase = targetDebt - currentDebt;
             require(increase <= _totalIdle, "Insufficient idle");
-            
+
             underlying.safeIncreaseAllowance(strategy, increase);
             ITokenizedStrategy(strategy).deposit(increase);
-            
+
             _totalIdle -= increase;
             _totalDebt += increase;
             params.currentDebt += increase;
         } else {
             uint256 decrease = currentDebt - targetDebt;
             ITokenizedStrategy(strategy).withdraw(decrease, address(this));
-            
+
             _totalIdle += decrease;
             _totalDebt -= decrease;
             params.currentDebt -= decrease;
@@ -300,11 +269,8 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
 
         address strategy = _activeStrategies[0];
         StrategyParams storage params = _strategies[strategy];
-        
-        uint256 available = Math.min(
-            _totalIdle,
-            params.maxDebt - params.currentDebt
-        );
+
+        uint256 available = Math.min(_totalIdle, params.maxDebt - params.currentDebt);
 
         if (available > 0) {
             _updateDebt(strategy, params.currentDebt + available);
@@ -313,16 +279,16 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
 
     function _withdrawFromStrategies(uint256 amount) internal {
         uint256 remaining = amount;
-        
-        for (uint i = 0; i < _activeStrategies.length && remaining > 0; i++) {
+
+        for (uint256 i = 0; i < _activeStrategies.length && remaining > 0; i++) {
             address strategy = _activeStrategies[i];
             StrategyParams storage params = _strategies[strategy];
-            
+
             uint256 toWithdraw = Math.min(remaining, params.currentDebt);
             if (toWithdraw == 0) continue;
 
             ITokenizedStrategy(strategy).withdraw(toWithdraw, address(this));
-            
+
             params.currentDebt -= toWithdraw;
             _totalDebt -= toWithdraw;
             remaining -= toWithdraw;
@@ -331,32 +297,24 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
         require(remaining == 0, "Insufficient liquidity");
     }
 
-    function _convertToShares(uint256 assets, Math.Rounding rounding)
-        internal
-        view
-        returns (uint256)
-    {
+    function _convertToShares(uint256 assets, Math.Rounding rounding) internal view returns (uint256) {
         uint256 supply = totalSupply();
-        
+
         if (supply == 0) {
             return assets;
         }
-        
+
         uint256 totalAUM = _totalIdle + _totalDebt;
         return assets.mulDiv(supply, totalAUM, rounding);
     }
 
-    function _convertToAssets(uint256 shares, Math.Rounding rounding)
-        internal
-        view
-        returns (uint256)
-    {
+    function _convertToAssets(uint256 shares, Math.Rounding rounding) internal view returns (uint256) {
         uint256 supply = totalSupply();
-        
+
         if (supply == 0) {
             return shares;
         }
-        
+
         uint256 totalAUM = _totalIdle + _totalDebt;
         return shares.mulDiv(totalAUM, supply, rounding);
     }
@@ -392,16 +350,12 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
     }
 
     // Add missing redeem function
-    function redeem(
-        uint256 shares,
-        address receiver,
-        address owner
-    ) external nonReentrant returns (uint256 assets) {
+    function redeem(uint256 shares, address receiver, address owner) external nonReentrant returns (uint256 assets) {
         require(shares > 0, "Zero shares");
         require(receiver != address(0), "Invalid receiver");
-        
+
         assets = _convertToAssets(shares, Math.Rounding.Floor);
-        
+
         if (msg.sender != owner) {
             _spendAllowance(owner, msg.sender, shares);
         }
@@ -428,24 +382,14 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
     }
 
     // Add missing strategies view function
-    function strategies(address strategy) 
-        external 
-        view 
-        override 
-        returns (
-            uint256 activation,
-            uint256 lastReport,
-            uint256 currentDebt,
-            uint256 maxDebt
-        ) 
+    function strategies(address strategy)
+        external
+        view
+        override
+        returns (uint256 activation, uint256 lastReport, uint256 currentDebt, uint256 maxDebt)
     {
         StrategyParams storage params = _strategies[strategy];
-        return (
-            params.activation,
-            params.lastReport,
-            params.currentDebt,
-            params.maxDebt
-        );
+        return (params.activation, params.lastReport, params.currentDebt, params.maxDebt);
     }
 
     // Make sure all other interface functions are properly implemented
@@ -466,7 +410,6 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
         return _convertToAssets(balanceOf(owner), Math.Rounding.Floor);
     }
 }
-
 
 interface IFactory {
     function getProtocolFeeConfig(address vault) external view returns (uint16 feeBps, address recipient);

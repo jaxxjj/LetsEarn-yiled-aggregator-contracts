@@ -9,18 +9,12 @@ interface ILetsVaultFactory {
     event FactoryShutdown();
 
     /// Vault Deployment
-    function deployVault(
-        address asset,
-        string memory name,
-        string memory symbol,
-        address manager
-    ) external returns (address vault);
+    function deployVault(address asset, string memory name, string memory symbol, address manager)
+        external
+        returns (address vault);
 
     /// Fee Management
-    function getProtocolFeeConfig(address vault) external view returns (
-        uint16 feeBps,
-        address recipient
-    );
+    function getProtocolFeeConfig(address vault) external view returns (uint16 feeBps, address recipient);
     function setProtocolFee(uint16 newFeeBps) external;
     function setFeeRecipient(address newRecipient) external;
 
@@ -28,10 +22,8 @@ interface ILetsVaultFactory {
     function shutdown() external;
     function isShutdown() external view returns (bool);
     function VAULT_IMPLEMENTATION() external view returns (address);
-    function calculateVaultAddress(
-        address asset,
-        string memory name,
-        string memory symbol,
-        address deployer
-    ) external view returns (address);
+    function calculateVaultAddress(address asset, string memory name, string memory symbol, address deployer)
+        external
+        view
+        returns (address);
 }

@@ -10,14 +10,13 @@ contract AaveStrategy is TokenizedStrategy {
 
     // Constants
     uint256 private constant RAY = 1e27;
-    
+
     // Immutables
     IPool public immutable pool;
     IERC20 public immutable aToken;
-    
+
     // Last recorded normalized income
     uint256 private lastNormalizedIncome;
-
 
     constructor(
         address _asset,
@@ -29,35 +28,26 @@ contract AaveStrategy is TokenizedStrategy {
     ) TokenizedStrategy(_asset, _name, "aStrat", _vault, _feeRecipient) {
         require(_pool != address(0), "Invalid pool");
         require(_aToken != address(0), "Invalid aToken");
-        
+
         pool = IPool(_pool);
         aToken = IERC20(_aToken);
-        
+
         // Initial normalized income
         lastNormalizedIncome = pool.getReserveNormalizedIncome(address(asset));
-        
+
         // Approve pool to spend asset
         SafeERC20.forceApprove(IERC20(_asset), _pool, type(uint256).max);
     }
 
     function _deployFunds(uint256 amount) internal override {
         if (amount > 0) {
-            pool.supply(
-                address(asset),
-                amount,
-                address(this),
-                0
-            );
+            pool.supply(address(asset), amount, address(this), 0);
         }
     }
 
     function _freeFunds(uint256 amount) internal override {
         if (amount > 0) {
-            pool.withdraw(
-                address(asset),
-                amount,
-                address(this)
-            );
+            pool.withdraw(address(asset), amount, address(this));
         }
     }
 
@@ -68,7 +58,7 @@ contract AaveStrategy is TokenizedStrategy {
         uint256 currentValue = (totalAtoken * currentNormalizedIncome) / RAY;
         // Update last normalized income
         lastNormalizedIncome = currentNormalizedIncome;
-        
+
         return currentValue;
     }
 
@@ -89,7 +79,7 @@ contract AaveStrategy is TokenizedStrategy {
     // Emergency functions
     function emergencyWithdraw() external override onlyVault {
         require(isShutdown, "Not shutdown");
-        
+
         // Withdraw everything from Aave
         uint256 aTokenBalance = aToken.balanceOf(address(this));
         if (aTokenBalance > 0) {
@@ -99,9 +89,8 @@ contract AaveStrategy is TokenizedStrategy {
                 vault
             );
         }
-        
+
         // Reset accounting
         totalAssets = 0;
     }
 }
-

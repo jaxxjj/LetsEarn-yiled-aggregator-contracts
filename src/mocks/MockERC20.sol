@@ -9,18 +9,14 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
  */
 contract MockERC20 is ERC20 {
     uint8 private _decimals;
-    
+
     /**
      * @notice Constructor
      * @param name_ Token name
      * @param symbol_ Token symbol
      * @param decimals_ Token decimals (default 18 if not specified)
      */
-    constructor(
-        string memory name_,
-        string memory symbol_,
-        uint8 decimals_
-    ) ERC20(name_, symbol_) {
+    constructor(string memory name_, string memory symbol_, uint8 decimals_) ERC20(name_, symbol_) {
         _decimals = 18;
     }
 
@@ -63,6 +59,6 @@ contract MockERC20 is ERC20 {
      * @param amount Amount to mint (in whole tokens)
      */
     function mintWithDecimals(address to, uint256 amount) external {
-        _mint(to, amount * 10**_decimals);
+        _mint(to, amount * 10 ** _decimals);
     }
 }

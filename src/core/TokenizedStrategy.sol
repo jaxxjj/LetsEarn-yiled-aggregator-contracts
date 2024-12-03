@@ -15,42 +15,33 @@ abstract contract TokenizedStrategy is ERC20, ReentrancyGuard {
     using Math for uint256;
 
     // Events
-    event Reported(
-        uint256 gain,
-        uint256 loss,
-        uint256 protocolFees,
-        uint256 performanceFees
-    );
+    event Reported(uint256 gain, uint256 loss, uint256 protocolFees, uint256 performanceFees);
     event UpdatePerformanceFee(uint16 newFee);
     event UpdatePerformanceFeeRecipient(address indexed recipient);
     event EmergencyShutdown();
 
     // Constants
-    uint16 public constant MAX_FEE = 5000;         // 50% in basis points
-    uint256 public constant MAX_BPS = 10_000;      // 100% in basis points
-    
+    uint16 public constant MAX_FEE = 5000; // 50% in basis points
+    uint256 public constant MAX_BPS = 10_000; // 100% in basis points
+
     // Immutables
-    IERC20 public immutable asset;                 // Underlying asset
-    address public immutable vault;                // Parent vault
+    IERC20 public immutable asset; // Underlying asset
+    address public immutable vault; // Parent vault
 
     // Strategy state
-    bool public isShutdown;                        // Emergency shutdown flag
-    uint16 public performanceFee;                  // Performance fee in basis points
-    address public performanceFeeRecipient;        // Address to receive performance fees
-    uint256 public totalAssets;                    // Total assets managed by strategy
-    
+    bool public isShutdown; // Emergency shutdown flag
+    uint16 public performanceFee; // Performance fee in basis points
+    address public performanceFeeRecipient; // Address to receive performance fees
+    uint256 public totalAssets; // Total assets managed by strategy
+
     modifier onlyVault() {
         require(msg.sender == vault, "Not vault");
         _;
     }
 
-    constructor(
-        address _asset,
-        string memory _name,
-        string memory _symbol,
-        address _vault,
-        address _feeRecipient
-    ) ERC20(_name, _symbol) {
+    constructor(address _asset, string memory _name, string memory _symbol, address _vault, address _feeRecipient)
+        ERC20(_name, _symbol)
+    {
         require(_asset != address(0), "Invalid asset");
         require(_vault != address(0), "Invalid vault");
         require(_feeRecipient != address(0), "Invalid recipient");
@@ -58,7 +49,7 @@ abstract contract TokenizedStrategy is ERC20, ReentrancyGuard {
         asset = IERC20(_asset);
         vault = _vault;
         performanceFeeRecipient = _feeRecipient;
-        performanceFee = 1000;                     // Default 10%
+        performanceFee = 1000; // Default 10%
     }
 
     /**
@@ -66,12 +57,7 @@ abstract contract TokenizedStrategy is ERC20, ReentrancyGuard {
      * @param amount Amount of assets to deposit
      * @return shares Amount of shares minted
      */
-    function deposit(uint256 amount) 
-        external 
-        onlyVault 
-        nonReentrant 
-        returns (uint256 shares) 
-    {
+    function deposit(uint256 amount) external onlyVault nonReentrant returns (uint256 shares) {
         require(!isShutdown, "Strategy is shutdown");
         require(amount > 0, "Zero amount");
 
@@ -96,10 +82,7 @@ abstract contract TokenizedStrategy is ERC20, ReentrancyGuard {
      * @param receiver Address to receive assets
      * @return assets Amount of assets withdrawn
      */
-    function withdraw(
-        uint256 amount,
-        address receiver
-    ) external onlyVault nonReentrant returns (uint256) {
+    function withdraw(uint256 amount, address receiver) external onlyVault nonReentrant returns (uint256) {
         require(amount > 0, "Zero amount");
         require(receiver != address(0), "Invalid receiver");
 
@@ -128,11 +111,11 @@ abstract contract TokenizedStrategy is ERC20, ReentrancyGuard {
     function report() external onlyVault nonReentrant returns (uint256 gain, uint256 loss) {
         // Get current assets including yield
         uint256 currentAssets = _estimateCurrentAssets();
-        
+
         // Calculate gain/loss
         if (currentAssets > totalAssets) {
             gain = currentAssets - totalAssets;
-            
+
             // Calculate fees
             uint256 performanceFeeAmount = (gain * performanceFee) / MAX_BPS;
             if (performanceFeeAmount > 0) {
@@ -141,10 +124,9 @@ abstract contract TokenizedStrategy is ERC20, ReentrancyGuard {
                 asset.safeTransfer(performanceFeeRecipient, performanceFeeAmount);
                 gain -= performanceFeeAmount;
             }
-            
+
             // Update total assets
             totalAssets = currentAssets - performanceFeeAmount;
-            
         } else if (currentAssets < totalAssets) {
             loss = totalAssets - currentAssets;
             totalAssets = currentAssets;
@@ -159,14 +141,14 @@ abstract contract TokenizedStrategy is ERC20, ReentrancyGuard {
      */
     function emergencyWithdraw() external virtual onlyVault nonReentrant {
         require(isShutdown, "Not shutdown");
-        
+
         // Get all funds from yield source
         uint256 totalFunds = _estimateCurrentAssets();
         _freeFunds(totalFunds);
-        
+
         // Transfer everything to vault
         asset.safeTransfer(vault, totalFunds);
-        
+
         // Update accounting
         totalAssets = 0;
     }
@@ -180,36 +162,27 @@ abstract contract TokenizedStrategy is ERC20, ReentrancyGuard {
     }
 
     // Internal conversion functions
-    function _convertToShares(uint256 assets, Math.Rounding rounding)
-        internal
-        view
-        returns (uint256)
-    {
+    function _convertToShares(uint256 assets, Math.Rounding rounding) internal view returns (uint256) {
         uint256 supply = totalSupply();
-        
+
         if (supply == 0) {
             return assets;
         }
-        
+
         return assets.mulDiv(supply, totalAssets, rounding);
     }
 
-    function _convertToAssets(uint256 shares, Math.Rounding rounding)
-        internal
-        view
-        returns (uint256)
-    {
+    function _convertToAssets(uint256 shares, Math.Rounding rounding) internal view returns (uint256) {
         uint256 supply = totalSupply();
-        
+
         if (supply == 0) {
             return shares;
         }
-        
+
         return shares.mulDiv(totalAssets, supply, rounding);
     }
 
     // View functions
-
 
     function maxDeposit(address) external view returns (uint256) {
         if (isShutdown) return 0;
@@ -221,7 +194,7 @@ abstract contract TokenizedStrategy is ERC20, ReentrancyGuard {
     }
 
     // Virtual functions to be implemented by specific strategies
-    
+
     /**
      * @notice Deploy funds to yield source
      * @param amount Amount of assets to deploy
