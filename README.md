@@ -68,17 +68,18 @@ User Deposit → Share Minting → Strategy Allocation → Yield Generation → 
 - Aave USDC Pool (Verified: Block 16773871)
 - Risk Level: Low
 - Expected APY: Market-dependent
+- Compound
+- Risk Level: Low
+- Expected APY: Market-dependent
 
-### 2. Staking
-- Lido Liquid Staking
-- Risk Level: Medium
-- Expected APY: Network-dependent
-
-### 3. Liquidity Provision
+### 2. Liquidity Provision
 - Uniswap V3 Pools
 - Risk Level: Variable
 - Expected APY: Pool-dependent
 
+- Curve Pool
+- Risk Level: Medium
+- Expected APY: Network-dependent
 ## Development Roadmap
 
 ### Phase 1: Foundation (Current)
