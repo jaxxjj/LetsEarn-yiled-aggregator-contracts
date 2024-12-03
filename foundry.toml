@@ -6,7 +6,9 @@ rpc_url = "${}"
 
 remappings = [
     "@openzeppelin/=lib/openzeppelin-contracts/",
-    "@aave/=lib/aave-v3-core/contracts/"
+    "@aave/=lib/aave-v3-core/contracts/",
+    "@uniswap/v3-periphery/=lib/v3-periphery/",
+    "@uniswap/v3-core/=lib/v3-core/"
 ]
 
 
