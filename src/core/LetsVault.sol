@@ -19,6 +19,7 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
     // Constants
     uint256 public constant MAX_BPS = 10_000; // 100%
     uint256 public constant SECONDS_PER_YEAR = 365.25 days;
+    uint256 public constant REPORT_INTERVAL = 29 days;
     
     // Immutables
     address public factory;
@@ -213,6 +214,7 @@ contract LetsVault is ILetsVault, ERC20, ReentrancyGuard, Pausable {
         returns (uint256 gain, uint256 loss) 
     {
         require(_strategies[strategy].activation > 0, "Invalid strategy");
+        require(_strategies[strategy].lastReport + REPORT_INTERVAL < block.timestamp, "Report already processed");
         
         // Get report from strategy
         (gain, loss) = ITokenizedStrategy(strategy).report();

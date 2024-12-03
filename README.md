@@ -4,11 +4,53 @@
 
 yield aggregator for lending, staking, and liquidity provider strategies
 
-## How it works
+## Design Motivation
+
+1. The proliferation of DeFi protocols makes it challenging for most users to evaluate their merits effectively. This evaluation requires expertise in:
+   - Smart contract security auditing
+   - Protocol metrics analysis
+   - Asset distribution patterns
+   - Fund flow tracking
+   - Yield calculations
+   - Fee structures
+   - Profit distribution mechanisms
+
+2. LetsEarn aims to provide a transparent, secure, and efficient yield strategy solution on-chain. Users can simply deposit and withdraw funds while the protocol handles all the complexity, offering a high level of abstraction.
+
+## Core Principles
+
+1. Complete transparency in:
+   - Fund flows
+   - Yield calculations
+   - Fee structures
+2. Automated periodic yield harvesting and rebalancing for optimal returns
+
+## Development Roadmap
+
+### Phase 1: Core Functionality
+Implementation of basic strategies including lending, DEX liquidity provision, and staking, with automated yield harvesting.
+
+### Phase 2: Advanced Strategies
+Integration of sophisticated strategies including:
+- Leveraged yield farming
+- Arbitrage opportunities
+- Futures and options trading
+
+### Phase 3: Algorithmic Products
+Development of advanced algorithmic products:
+- Algorithmic stablecoins
+- Bonding mechanisms
+- Synthetic derivatives
+
+### Phase 4: Cross-chain Integration
+Converting vault tokens to Optimistic Fraud Tokens (OFT) to enable cross-chain yield extraction.
+
+### Phase 5: User Accessibility
+Integration of account abstraction to improve accessibility and user experience, making LetsEarn available to a broader audience.
 
 1. lending strategy
     current support: 
-    - aave: usdt test block 16773871
+    - aave: usdc test block 16773871
 2. staking strategy
     current support: 
     - lido
