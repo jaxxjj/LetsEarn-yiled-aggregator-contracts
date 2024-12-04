@@ -10,7 +10,6 @@ interface ICurvePool {
     function remove_liquidity_one_coin(uint256 _token_amount, int128 i, uint256 min_amount) external;
     function calc_withdraw_one_coin(uint256 _token_amount, int128 i) external view returns (uint256);
     function get_virtual_price() external view returns (uint256);
-    function balances(uint256) external view returns (uint256);
 }
 
 interface ICurveGauge {
@@ -20,116 +19,102 @@ interface ICurveGauge {
     function claim_rewards() external;
 }
 
-interface ICurveMinter {
-    function mint(address gauge_addr) external;
-}
-
 contract CurveStrategy is TokenizedStrategy {
     using SafeERC20 for IERC20;
 
-    // Curve contracts
-    ICurvePool public constant POOL = ICurvePool(0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7); // DAI/USDC Pool
-    ICurveGauge public constant GAUGE = ICurveGauge(0xbFcF63294aD7105dEa65aA58F8AE5BE2D9d0952A);
-    ICurveMinter public constant MINTER = ICurveMinter(0xd061D61a4d941c39E5453435B6345Dc261C2fcE0);
-    IERC20 public constant CRV = IERC20(0xD533a949740bb3306d119CC777fa900bA034cd52);
-    IERC20 public constant LP_TOKEN = IERC20(0xbEbc44782C7dB0a1A60Cb6fe97d0b483032FF1C7);
+    // Immutable addresses
+    ICurvePool public immutable POOL;
+    ICurveGauge public immutable GAUGE;
+    IERC20 public immutable LP_TOKEN;
+    int128 public immutable ASSET_INDEX;
 
     // Strategy state
     uint256 public totalLpTokens;
-    int128 public constant ASSET_INDEX = 1; // Index of our asset in the pool (USDC = 1)
-    uint256 public slippageProtection = 50; // 0.5%
 
     constructor(
         address _asset,
         string memory _name,
         address _vault,
-        address _manager
-    ) TokenizedStrategy(_asset, _name, _vault, _manager) {
+        address _pool,
+        address _gauge,
+        int128 _assetIndex,
+        address _manager,
+        address _performanceFeeRecipient
+    ) TokenizedStrategy(_asset, _name, _vault, _manager, _performanceFeeRecipient) {
+        POOL = ICurvePool(_pool);
+        GAUGE = ICurveGauge(_gauge);
+        LP_TOKEN = IERC20(_pool);
+        ASSET_INDEX = _assetIndex;
+
         // Approve pool and gauge
-        IERC20(_asset).safeApprove(address(POOL), type(uint256).max);
-        LP_TOKEN.safeApprove(address(GAUGE), type(uint256).max);
+        IERC20(_asset).forceApprove(_pool, type(uint256).max);
+        IERC20(_pool).forceApprove(_gauge, type(uint256).max);
     }
 
+
     function _deployFunds(uint256 amount) internal override {
-        // Calculate minimum LP tokens to receive
-        uint256 minLpAmount = _estimateMinLpTokens(amount);
-        
+        if (amount == 0) return;
+
         // Add liquidity to Curve pool
         uint256[2] memory amounts;
-        amounts[ASSET_INDEX] = amount;
-        POOL.add_liquidity(amounts, minLpAmount);
-        
+        amounts[uint256(uint128(ASSET_INDEX))] = amount;
+        POOL.add_liquidity(amounts, 0);
+
         // Stake LP tokens in gauge
         uint256 lpBalance = LP_TOKEN.balanceOf(address(this));
-        GAUGE.deposit(lpBalance);
-        
-        // Update total LP tokens
-        totalLpTokens += lpBalance;
+        if (lpBalance > 0) {
+            GAUGE.deposit(lpBalance);
+            totalLpTokens += lpBalance;
+        }
     }
 
     function _freeFunds(uint256 amount) internal override {
+        if (amount == 0) return;
+
         // Calculate LP tokens needed
         uint256 lpTokensNeeded = _calculateLpTokensForWithdrawal(amount);
         require(lpTokensNeeded <= totalLpTokens, "Insufficient LP tokens");
-        
+
         // Withdraw from gauge
         GAUGE.withdraw(lpTokensNeeded);
-        
-        // Remove liquidity from pool
-        uint256 minAmount = amount * (10000 - slippageProtection) / 10000;
-        POOL.remove_liquidity_one_coin(lpTokensNeeded, ASSET_INDEX, minAmount);
-        
-        // Update total LP tokens
         totalLpTokens -= lpTokensNeeded;
+
+        // Remove liquidity from pool
+        POOL.remove_liquidity_one_coin(lpTokensNeeded, ASSET_INDEX, 0);
     }
 
-    function _estimateCurrentAssets() internal view override returns (uint256) {
-        // Get gauge balance
-        uint256 gaugeBalance = GAUGE.balanceOf(address(this));
-        if (gaugeBalance == 0) return 0;
-        
-        // Calculate value in asset terms
-        return POOL.calc_withdraw_one_coin(gaugeBalance, ASSET_INDEX);
+    function _totalAssets() internal view override returns (uint256) {
+        if (totalLpTokens == 0) return 0;
+        return POOL.calc_withdraw_one_coin(totalLpTokens, ASSET_INDEX);
     }
 
     function _harvestAndReport() internal override returns (uint256) {
-        // Claim CRV rewards
-        GAUGE.claim_rewards();
-        MINTER.mint(address(GAUGE));
-        
-        // Sell CRV rewards for asset
-        uint256 crvBalance = CRV.balanceOf(address(this));
-        if (crvBalance > 0) {
-            _sellRewards(crvBalance);
+        // Claim rewards
+        if (totalLpTokens > 0) {
+            GAUGE.claim_rewards();
         }
-        
-        // Return total assets
-        return _estimateCurrentAssets();
+
+        // Report total assets
+        return _totalAssets();
     }
 
-    function _emergencyWithdraw() internal override {
-        // Withdraw everything from gauge
-        uint256 gaugeBalance = GAUGE.balanceOf(address(this));
-        if (gaugeBalance > 0) {
-            GAUGE.withdraw(gaugeBalance);
+    function emergencyWithdraw(uint256 amount) external onlyVault {
+        // Withdraw specified amount from gauge
+        if (amount > totalLpTokens) {
+            amount = totalLpTokens;
         }
-        
-        // Remove all liquidity
-        uint256 lpBalance = LP_TOKEN.balanceOf(address(this));
-        if (lpBalance > 0) {
-            POOL.remove_liquidity_one_coin(lpBalance, ASSET_INDEX, 0);
-        }
-        
-        // Reset state
-        totalLpTokens = 0;
-    }
 
-    // Helper functions
-    function _estimateMinLpTokens(uint256 amount) internal view returns (uint256) {
-        // Simple estimation based on virtual price
-        uint256 virtualPrice = POOL.get_virtual_price();
-        uint256 expectedLp = (amount * 1e18) / virtualPrice;
-        return expectedLp * (10000 - slippageProtection) / 10000;
+        if (amount > 0) {
+            GAUGE.withdraw(amount);
+            totalLpTokens -= amount;
+            POOL.remove_liquidity_one_coin(amount, ASSET_INDEX, 0);
+        }
+
+        // Transfer withdrawn assets to vault
+        uint256 balance = IERC20(asset).balanceOf(address(this));
+        if (balance > 0) {
+            IERC20(asset).safeTransfer(vault, balance);
+        }
     }
 
     function _calculateLpTokensForWithdrawal(uint256 amount) internal view returns (uint256) {
@@ -149,16 +134,5 @@ contract CurveStrategy is TokenizedStrategy {
         }
         
         return high;
-    }
-
-    function _sellRewards(uint256 amount) internal {
-        // Implement reward selling logic here
-        // This would typically involve using a DEX to swap CRV for the asset
-    }
-
-    // Admin functions
-    function setSlippageProtection(uint256 _slippage) external onlyManager {
-        require(_slippage <= 1000, "Slippage too high"); // Max 10%
-        slippageProtection = _slippage;
     }
 } 
