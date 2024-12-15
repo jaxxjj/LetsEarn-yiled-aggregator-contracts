@@ -40,7 +40,7 @@ contract CurveStrategy is TokenizedStrategy {
         int128 _assetIndex,
         address _manager,
         address _performanceFeeRecipient
-    ) TokenizedStrategy(_asset, _name, _vault, _manager, _performanceFeeRecipient) {
+    ) TokenizedStrategy(_asset, _name, "cStrat", _vault, _performanceFeeRecipient) {
         POOL = ICurvePool(_pool);
         GAUGE = ICurveGauge(_gauge);
         LP_TOKEN = IERC20(_pool);
@@ -50,7 +50,6 @@ contract CurveStrategy is TokenizedStrategy {
         IERC20(_asset).forceApprove(_pool, type(uint256).max);
         IERC20(_pool).forceApprove(_gauge, type(uint256).max);
     }
-
 
     function _deployFunds(uint256 amount) internal override {
         if (amount == 0) return;
@@ -83,31 +82,26 @@ contract CurveStrategy is TokenizedStrategy {
         POOL.remove_liquidity_one_coin(lpTokensNeeded, ASSET_INDEX, 0);
     }
 
-    function _totalAssets() internal view override returns (uint256) {
+    function _estimateCurrentAssets() internal override returns (uint256) {
         if (totalLpTokens == 0) return 0;
-        return POOL.calc_withdraw_one_coin(totalLpTokens, ASSET_INDEX);
-    }
-
-    function _harvestAndReport() internal override returns (uint256) {
-        // Claim rewards
+        
+        // Claim rewards if any
         if (totalLpTokens > 0) {
             GAUGE.claim_rewards();
         }
-
-        // Report total assets
-        return _totalAssets();
+        
+        return POOL.calc_withdraw_one_coin(totalLpTokens, ASSET_INDEX);
     }
 
-    function emergencyWithdraw(uint256 amount) external onlyVault {
-        // Withdraw specified amount from gauge
-        if (amount > totalLpTokens) {
-            amount = totalLpTokens;
-        }
-
-        if (amount > 0) {
-            GAUGE.withdraw(amount);
-            totalLpTokens -= amount;
-            POOL.remove_liquidity_one_coin(amount, ASSET_INDEX, 0);
+    function emergencyWithdraw() external override onlyVault {
+        require(isShutdown, "Not shutdown");
+        
+        // Withdraw all LP tokens from gauge
+        uint256 lpBalance = totalLpTokens;
+        if (lpBalance > 0) {
+            GAUGE.withdraw(lpBalance);
+            totalLpTokens = 0;
+            POOL.remove_liquidity_one_coin(lpBalance, ASSET_INDEX, 0);
         }
 
         // Transfer withdrawn assets to vault
