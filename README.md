@@ -57,6 +57,16 @@ Specialized yield generators:
 - Upgradeable design
 - Multi-strategy support
 
+### Strategy Algorithm
+
+![Strategy Formula](public/images/formula.png)
+
+We use above formula to calculate the weights of each strategy and the parameters are:
+
+![Strategy Parameters](public/images/parameters.png)
+
+The denominator normalizes the weights so that their sum equals 1.
+
 ### Process Flow
 
 User Deposit → Share Minting → Strategy Allocation → Yield Generation → Automated Rebalancing → User Withdrawal
@@ -121,6 +131,3 @@ User Deposit → Share Minting → Strategy Allocation → Yield Generation → 
 - Auto-rebalancing
 - Position monitoring
 
-## Technical Integration
-
-### Smart Contract Interaction
